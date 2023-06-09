@@ -1,0 +1,4 @@
+# 11 * 23 = 253
+WIDTH = 23
+HEIGHT = 11
+NUM_PIXELS = 253
