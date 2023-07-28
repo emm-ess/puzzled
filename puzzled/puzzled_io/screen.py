@@ -1,12 +1,17 @@
 import atexit
 import curses
+
+import numpy as np
+
+from .font import GLYPHS
+
 try:
     import rpi_ws281x as ws
     led_usage_possible = True
 except ImportError:
     led_usage_possible = False
 
-from .const import NUM_PIXELS, WIDTH, HEIGHT
+from .const import NUM_PIXELS, NUM_PIXELS_POINTS, WIDTH, HEIGHT
 from .helper import init_curses, init_draw_areas, find_closest_color_index, rgb_to_grb
 
 
@@ -20,7 +25,7 @@ LED_DMA = 10
 LED_INVERT = False
 LED_CHANNEL = 0
 
-TOTAL_AMOUNT_LEDS = NUM_PIXELS + 10
+TOTAL_AMOUNT_LEDS = NUM_PIXELS + NUM_PIXELS_POINTS
 
 
 # LED_STRIP = ws.WS2811_STRIP_RGB
@@ -28,12 +33,17 @@ TOTAL_AMOUNT_LEDS = NUM_PIXELS + 10
 # LED_STRIP = ws.SK6812_STRIP_RGBW
 # LED_STRIP = ws.SK6812W_STRIP
 
-# code is a kind of copy pasta from https://github.com/rpi-ws281x/rpi-ws281x-python/blob/master/library/rpi_ws281x/rpi_ws281x.py
+# code is a kind of copy pasta from
+# https://github.com/rpi-ws281x/rpi-ws281x-python/blob/master/library/rpi_ws281x/rpi_ws281x.py
 
 class Screen:
     def __init__(self, use_leds=led_usage_possible, use_terminal=False):
+        self._leds = None
         self.use_leds = use_leds and led_usage_possible
         self.use_terminal = use_terminal or not use_leds
+        self.size = TOTAL_AMOUNT_LEDS
+        self.game_area_pixel = np.full((HEIGHT, WIDTH), 0, np.int32)
+        self.cur_text_mask: None | np.ndarray[bool] = None
 
         if self.use_leds:
             self._init_leds()
@@ -41,8 +51,6 @@ class Screen:
 
         if self.use_terminal:
             self._init_terminal()
-
-        self.size = TOTAL_AMOUNT_LEDS
 
         # Substitute for __del__, traps an exit condition and cleans up properly
         atexit.register(self._cleanup)
@@ -122,27 +130,49 @@ class Screen:
         """Initialize library, must be called once before other functions are
         called.
         """
-
         resp = ws.ws2811_init(self._leds)
         if resp != 0:
             str_resp = ws.ws2811_get_return_t_str(resp)
             raise RuntimeError('ws2811_init failed with code {0} ({1})'.format(resp, str_resp))
 
     def render(self):
+        game_area = self._render_game_area()
         if self.use_leds:
-            self._render_leds()
+            self._render_leds(game_area)
         if self.use_terminal:
-            self._render_terminal()
+            self._render_terminal(game_area)
 
-    def _render_leds(self):
+    def _render_game_area(self):
+        if self.cur_text_mask is None:
+            return self.game_area_pixel
+        text_width = self.cur_text_mask.shape[1]
+        width = min(WIDTH, text_width)
+        frame_mask = self.cur_text_mask[:,:width]
+        result = np.array(self.game_area_pixel)
+        it = np.nditer(frame_mask, flags=['multi_index'])
+        for masked in it:
+            if masked:
+                x, y = it.multi_index
+                result[x + 2][y] = 0xffffffff
+        return result
+
+    def _render_leds(self, game_area) -> None:
+        it = np.nditer(game_area, flags=['f_index'])
+        for color in it:
+            self[it.index + NUM_PIXELS_POINTS] = color
         """Update the display with the data from the LED buffer."""
         resp = ws.ws2811_render(self._leds)
         if resp != 0:
             str_resp = ws.ws2811_get_return_t_str(resp)
             raise RuntimeError('ws2811_render failed with code {0} ({1})'.format(resp, str_resp))
 
-    def _render_terminal(self):
+    def _render_terminal(self, game_area) -> None:
         self.screen.clear()
+        it = np.nditer(game_area, flags=['multi_index'])
+        for color in it:
+            color_index = find_closest_color_index(color)
+            y, x = it.multi_index
+            self.game_area.addch(y + 1, x * 2 + 2, curses.ACS_BLOCK, curses.color_pair(color_index))
         self.game_area.refresh()
         self.points_a_area.refresh()
         self.points_b_area.refresh()
@@ -157,12 +187,7 @@ class Screen:
         ws.ws2811_channel_t_brightness_set(self._channel, brightness)
 
     def set_game_area_pixel(self, x: int, y: int, color: int):
-        if self.use_leds:
-            pos = 10 + y * WIDTH + x
-            self[pos] = color
-        if self.use_terminal:
-            color_index = find_closest_color_index(color)
-            self.game_area.addch(y + 1, x * 2 + 2, curses.ACS_BLOCK, curses.color_pair(color_index))
+        self.game_area_pixel[y][x] = color
 
     def set_point_area_pixel(self, set_b_area: bool, pos: int, color: int):
         if self.use_leds:
@@ -176,14 +201,7 @@ class Screen:
             point_area.addch(pos + 1, 2, curses.ACS_BLOCK, curses.color_pair(color_index))
 
     def fill_game_area(self, color: int):
-        if self.use_leds:
-            for pos in range(10, TOTAL_AMOUNT_LEDS):
-                self[pos] = color
-        if self.use_terminal:
-            color_index = find_closest_color_index(color)
-            for y in range(1, HEIGHT + 1):
-                for x in range(1, WIDTH + 1):
-                    self.game_area.addch(y, x * 2, curses.ACS_BLOCK, curses.color_pair(color_index))
+        self.game_area_pixel.fill(color)
 
     def fill_point_area(self, set_b_area: bool, color: int):
         if self.use_leds:
@@ -196,3 +214,12 @@ class Screen:
             point_area = self.points_b_area if set_b_area else self.points_a_area
             for pos in range(1, 6):
                 point_area.addch(pos, 2, curses.ACS_BLOCK, curses.color_pair(color_index))
+
+    def set_text(self, text: str | None):
+        if text is None:
+            self.cur_text_mask = None
+        glyphs = GLYPHS[text[0]]
+        kerning_space = np.full((7, 1), False)
+        for char in text[1:]:
+            glyphs = np.concatenate((glyphs, kerning_space, GLYPHS[char]), axis=1)
+        self.cur_text_mask = glyphs

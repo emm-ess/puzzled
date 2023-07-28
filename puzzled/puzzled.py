@@ -52,8 +52,8 @@ def do_fill(screen, color):
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
-
     screen = Screen(True, True)
+    screen.set_text('Hej !')
 
     while True:
         do_wheel(screen)
