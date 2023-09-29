@@ -16,8 +16,9 @@ def init_curses():
     global screen
     if screen == None:
         screen = curses.initscr()
-        # screen.keypad(True)
+        screen.keypad(True)
         screen.clear()
+        screen.nodelay(True)
         curses.noecho()
         curses.cbreak()
         curses.start_color()
