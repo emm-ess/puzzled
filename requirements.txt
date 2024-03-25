@@ -1,4 +1,4 @@
-numpy==1.25
+numpy>=1.26.2
 RPi.GPIO==0.7.1
 rpi_ws281x==5.0.0
 spidev==3.6

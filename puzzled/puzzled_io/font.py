@@ -1,6 +1,6 @@
 import os
-from typing import Dict, List
 import numpy as np
+import numpy.typing as npt
 
 
 # font used:
@@ -11,12 +11,12 @@ GLYPH_ENTRY_HEIGHT = GLYPH_HEIGHT + 1
 GLYPH_FILE = os.path.join(os.path.dirname(__file__), 'glyphs.txt')
 
 
-def divide_chunks(unchunked_list: List, chunk_size: int) -> List[List]:
+def divide_chunks(unchunked_list: list, chunk_size: int) -> list[list]:
     for i in range(0, len(unchunked_list), chunk_size):
         yield unchunked_list[i:i + chunk_size]
 
 
-def rehydrate_glyph(lines: List[str]) -> np.ndarray[bool]:
+def rehydrate_glyph(lines: list[str]) -> npt.NDArray[np.bool_]:
     glyph = []
     max_length = 0
     for line in lines:
@@ -33,7 +33,7 @@ def rehydrate_glyph(lines: List[str]) -> np.ndarray[bool]:
     return np.array(glyph, dtype=bool)
 
 
-def load_glyphs() -> Dict[str, np.ndarray[bool]]:
+def load_glyphs() -> dict[str, npt.NDArray[np.bool_]]:
     hydrated_glyphs = {}
     with open(GLYPH_FILE) as f:
         lines = f.readlines()

@@ -3,6 +3,7 @@
 .todo
 .notes
 deploy.sh
+run.sh
 
 # Python
 ###########################

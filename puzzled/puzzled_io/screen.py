@@ -1,5 +1,6 @@
 import atexit
 import curses
+from typing import Union
 
 import numpy as np
 
@@ -148,18 +149,14 @@ class Screen:
         text_width = self.cur_text_mask.shape[1]
         width = min(WIDTH, text_width)
         frame_mask = self.cur_text_mask[:,:width]
-        result = np.array(self.game_area_pixel)
-        it = np.nditer(frame_mask, flags=['multi_index'])
-        for masked in it:
-            if masked:
-                x, y = it.multi_index
-                result[x + 2][y] = 0xffffffff
+        result = np.array(self.game_area_pixel, copy=True)
+        np.putmask(result, frame_mask, 0xffffff)
         return result
 
     def _render_leds(self, game_area) -> None:
-        it = np.nditer(game_area, flags=['f_index'])
+        it = np.nditer(game_area, flags=['c_index'])
         for color in it:
-            self[it.index + NUM_PIXELS_POINTS] = color
+            self[it.index + NUM_PIXELS_POINTS] = int(color)
         """Update the display with the data from the LED buffer."""
         resp = ws.ws2811_render(self._leds)
         if resp != 0:
@@ -215,11 +212,13 @@ class Screen:
             for pos in range(1, 6):
                 point_area.addch(pos, 2, curses.ACS_BLOCK, curses.color_pair(color_index))
 
-    def set_text(self, text: str | None):
+    def set_text(self, text: Union[str, None]):
         if text is None:
             self.cur_text_mask = None
-        glyphs = GLYPHS[text[0]]
+        glyphs = np.copy(GLYPHS[text[0]])
         kerning_space = np.full((7, 1), False)
         for char in text[1:]:
             glyphs = np.concatenate((glyphs, kerning_space, GLYPHS[char]), axis=1)
-        self.cur_text_mask = glyphs
+        # TODO: for now we add two rows empty rows to have the same height as the play area
+        line = np.full((2, glyphs.shape[1]), False)
+        self.cur_text_mask = np.concatenate((line, glyphs, line), axis=0)
