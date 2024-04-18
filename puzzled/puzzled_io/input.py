@@ -1,4 +1,3 @@
-import asyncio
 import atexit
 import curses
 import math
@@ -16,8 +15,7 @@ try:
 except ImportError:
     hardware_usage_possible = False
 
-from .const import POLL_RATE, WIDTH, HEIGHT
-
+from .const import POLL_RATE, WIDTH, HEIGHT, POTENTIOMETER_MAX_VALUE
 
 POT_A_CHANNEL = 0
 POT_B_CHANNEL = 1
@@ -105,7 +103,10 @@ class Input:
 
         # Substitute for __del__, traps an exit condition and cleans up properly
         atexit.register(self._cleanup)
-        self.start()
+
+        self.poll_thread = Input.SpiInput(self, self.save_and_send_state_change) \
+            if hardware_usage_possible \
+            else Input.KeyboardInput(self, self.save_and_send_state_change)
 
     def _init_hardware(self):
         GPIO.setmode(GPIO.BOARD)
@@ -114,8 +115,7 @@ class Input:
 
     def _init_hardware_button(self, channel):
         GPIO.setup(channel, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-        GPIO.add_event_detect(channel, GPIO.RISING, callback=self.button_pressed)
-        GPIO.add_event_detect(channel, GPIO.FALLING, callback=self.button_released)
+        GPIO.add_event_detect(channel, GPIO.BOTH, callback=self.handle_button_event)
 
     def _cleanup(self):
         if self.poll_thread is not None:
@@ -124,19 +124,13 @@ class Input:
             GPIO.cleanup()
 
     def start(self):
-        self.poll_thread = Input.SpiInput(self, self.save_and_send_state_change) \
-            if hardware_usage_possible \
-            else Input.KeyboardInput(self, self.save_and_send_state_change)
         # self.poll_thread = threading.Thread(target=target, name='InputPoll', args=(1,), daemon=True)
         self.poll_thread.start()
 
-    def button_pressed(self, channel: int):
-        self.handle_button_event(ButtonStateType.pressed, channel)
-
-    def button_released(self, channel: int):
-        self.handle_button_event(ButtonStateType.released, channel)
-
-    def handle_button_event(self, event_type: ButtonStateType, channel: int):
+    def handle_button_event(self, channel: int):
+        print(channel)
+        print(GPIO.input(channel))
+        event_type = ButtonStateType.pressed if GPIO.input(channel) else ButtonStateType.released
         event = ButtonState(event_type, time.time())
         changed: InputStateUpdate = {}
         if channel == BUTTON_A_CHANNEL:
@@ -161,13 +155,16 @@ class Input:
             self.spi.max_speed_hz = 1000000  # 1MHz
             self.spi.bits_per_word = 8
             self.spi.mode = 3
+            self.step_width_a = POTENTIOMETER_MAX_VALUE / parent.steps_a
+            self.step_width_b = POTENTIOMETER_MAX_VALUE / parent.steps_b
+            self.step_width_brightness = POTENTIOMETER_MAX_VALUE / 127
 
-        async def run(self):
+        def run(self):
             while True:
                 changed = self.read_player_inputs()
                 self.callback(changed)
-                self.parent.input_brightness = self.read(BRIGHTNESS_CHANNEL, 127)[1]
-                await asyncio.sleep(1. / POLL_RATE)
+                self.parent.input_brightness = self.read(BRIGHTNESS_CHANNEL, 127).quantized
+                time.sleep(1. / POLL_RATE)
 
         def stop(self):
             self.join()
@@ -176,19 +173,19 @@ class Input:
 
         def read_player_inputs(self) -> InputStateUpdate:
             changed: InputStateUpdate = {}
-            pos_a = self.read(POT_A_CHANNEL, self.parent.steps_a)
+            pos_a = self.read(POT_A_CHANNEL, self.step_width_a)
             if pos_a.quantized != self.input_state['pos_a'].quantized:
                 changed['pos_a'] = pos_a
-            pos_b = self.read(POT_B_CHANNEL, self.parent.steps_b)
+            pos_b = self.read(POT_B_CHANNEL, self.step_width_b)
             if pos_b.quantized != self.input_state['pos_b'].quantized:
                 changed['pos_b'] = pos_b
             return changed
 
-        def read(self, channel, steps):
+        def read(self, channel, step_width):
             cmd = [0b00000110, channel << 6, 0]
             reply_bytes = self.spi.xfer2(cmd)
             raw = ((reply_bytes[1] & 15) << 8) + reply_bytes[2]
-            return PotentiometerState(math.floor(raw / steps), raw)
+            return PotentiometerState(math.floor(raw / step_width), raw)
 
     class KeyboardInput(threading.Thread):
         screen = init_curses()

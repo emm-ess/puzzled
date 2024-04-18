@@ -2,7 +2,7 @@ import signal
 import sys
 import time
 
-# from puzzled_io.input import Input
+from puzzled_io.input import Input, ButtonStateType
 from puzzled_io.screen import Screen
 from puzzled_io.const import WIDTH, HEIGHT
 
@@ -53,16 +53,23 @@ def do_fill(screen, color):
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
-    # inputer = Input()
     screen = Screen(True, False)
-    screen.set_text('Hej !')
+    do_fill(screen, 0x800000)
+    inputer = Input()
+    inputer.start()
+    # screen.set_text('Hej !')
 
     while True:
-        do_wheel(screen)
+        # do_wheel(screen)
         # do_fill(screen, 0x800000)
-        # x = inputer.state['pos_a'].quantized
-        # y = inputer.state['pos_b'].quantized
-        # screen.set_game_area_pixel(x, y, 0xFF0000)
+        x = inputer.state['pos_a'].quantized
+        y = inputer.state['pos_b'].quantized
+        do_fill(screen, 0x800000)
+        screen.set_game_area_pixel(x, y, 0x00FF00)
+        if inputer.state['button_a'].type == ButtonStateType.pressed:
+            screen.set_game_area_pixel(0, 0, 0x0000FF)
+        if inputer.state['button_b'].type == ButtonStateType.pressed:
+            screen.set_game_area_pixel(WIDTH - 1, HEIGHT - 1, 0x0000FF)
         screen.render()
         time.sleep(1. / 30)
         # do_fill(screen, 0xff0000)

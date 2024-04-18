@@ -17,10 +17,10 @@ def init_curses():
     if screen == None:
         screen = curses.initscr()
         screen.keypad(True)
-        # screen.clear()
+        screen.clear()
         screen.nodelay(True)
         curses.noecho()
-        # curses.cbreak()
+        curses.cbreak()
         curses.start_color()
         init_colors()
     return screen
@@ -29,9 +29,9 @@ def init_curses():
 def _cleanup():
     global screen
     if screen != None:
-        # screen.clear()
+        screen.clear()
         screen.keypad(False)
-        # curses.nocbreak()
+        curses.nocbreak()
         curses.echo()
         curses.endwin()
 
